@@ -2103,6 +2103,10 @@ namespace wi::gui
 		}
 
 		Widget::Update(canvas, dt);
+		static Slider* activeSlider = nullptr;
+		bool pointerDown = wi::input::Down(wi::input::MOUSE_BUTTON_LEFT);
+		bool pointerPress = wi::input::Press(wi::input::MOUSE_BUTTON_LEFT);
+		bool pointerRelease = wi::input::Release(wi::input::MOUSE_BUTTON_LEFT);
 
 		valueInputField.Detach();
 		if (state != ACTIVE)
@@ -2127,7 +2131,7 @@ namespace wi::gui
 		valueInputField.SetEnabled(enabled);
 		valueInputField.force_disable = force_disable;
 		valueInputField.Update(canvas, dt);
-
+		Hitbox2D pointerHitbox = GetPointerHitbox();
 		if (IsEnabled() && dt > 0)
 		{
 			bool dragged = false;
@@ -2140,23 +2144,26 @@ namespace wi::gui
 			{
 				state = IDLE;
 			}
-			if (state == ACTIVE)
+			if (activeSlider == this && pointerDown)
 			{
-				if (wi::input::Down(wi::input::MOUSE_BUTTON_LEFT))
-				{
-					if (state == ACTIVE)
-					{
-						// continue drag if already grabbed whether it is intersecting or not
-						dragged = true;
-					}
-				}
-				else
-				{
-					Deactivate();
-				}
+				// продлеваем перетаскивание, даже если курсор вне хитбокса
+				dragged = true;
+			}
+			else if (activeSlider == this && pointerRelease)
+			{
+				// отпустили — сбрасываем захват
+				activeSlider = nullptr;
+				Deactivate();
+			}
+			else if (pointerPress && pointerHitbox.intersects(hitBox))
+			{
+				// начали новое перетаскивание
+				activeSlider = this;
+				dragged = true;
+				Activate();
 			}
 
-			Hitbox2D pointerHitbox = GetPointerHitbox();
+		
 
 			if (pointerHitbox.intersects(hitBox))
 			{
@@ -2182,11 +2189,18 @@ namespace wi::gui
 				EventArgs args;
 				args.clickPos = pointerHitbox.pos;
 				value = wi::math::InverseLerp(translation.x, translation.x + hitBox.siz.x, args.clickPos.x);
-				value = wi::math::Clamp(value, 0, 1);
-				value *= step;
-				value = std::floor(value);
-				value /= step;
-				value = wi::math::Lerp(start, end, value);
+				float t = (args.clickPos.x - translation.x) / hitBox.siz.x;
+				t = wi::math::Clamp(t, 0.0f, 1.0f);
+
+				// применяем шаг
+				float range = end - start;
+				float rawValue = start + t * range;
+				if (step > 0)
+				{
+					rawValue = std::round(rawValue / step) * step;
+				}
+
+				value = wi::math::Clamp(rawValue, start, end);
 				args.fValue = value;
 				args.iValue = (int)value;
 				onSlide(args);
@@ -3796,6 +3810,7 @@ namespace wi::gui
 				widget->priority = ~0u;
 			}
 		}
+
 		force_disable = false;
 
 		if (priority > 0)
